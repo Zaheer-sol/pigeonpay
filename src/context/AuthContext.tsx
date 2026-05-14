@@ -1,15 +1,16 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { Session, User } from '@supabase/supabase-js';
 import { supabase, Profile, Balance } from '../lib/supabase';
+import { auth, RecaptchaVerifier, signInWithPhoneNumber, PhoneAuthProvider, signInWithCredential, signOut as firebaseSignOut } from '../lib/firebase';
+import { User as FirebaseUser } from 'firebase/auth';
 
 type AuthContextType = {
-  user: User | null;
-  session: Session | null;
+  user: FirebaseUser | null;
   profile: Profile | null;
   balances: Balance[];
   loading: boolean;
-  signUp: (phone: string, password: string) => Promise<{ error: string | null }>;
-  signIn: (phone: string, password: string) => Promise<{ error: string | null }>;
+  sendOTP: (phone: string) => Promise<{ error: string | null; verificationId?: string }>;
+  verifyOTP: (verificationId: string, otp: string, phone: string) => Promise<{ error: string | null }>;
+  addPhone: (phone: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshBalances: () => Promise<void>;
 };
@@ -17,29 +18,24 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [balances, setBalances] = useState<Balance[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) loadProfile(session.user.id);
-        else setLoading(false);
-      })
-      .catch(() => {
-        setLoading(false);
-      });
+    // If Firebase is not configured, don't try to listen to auth changes
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        (async () => { await loadProfile(session.user.id); })();
+    // Listen to Firebase auth state changes
+    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser: any) => {
+      setUser(firebaseUser);
+      if (firebaseUser) {
+        // Load Supabase profile using Firebase UID
+        await loadProfile(firebaseUser.uid);
       } else {
         setProfile(null);
         setBalances([]);
@@ -47,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   async function loadProfile(userId: string) {
@@ -63,36 +59,121 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshBalances() {
-    if (user) await fetchBalances(user.id);
+    if (user) await fetchBalances(user.uid);
   }
 
-  async function signUp(phone: string, password: string): Promise<{ error: string | null }> {
-    const email = `${phone.replace(/\D/g, '')}@pigeonpay.app`;
-    const { data, error } = await supabase.auth.signUp({ email, password });
+  async function sendOTP(phone: string): Promise<{ error: string | null; verificationId?: string }> {
+    if (!auth) {
+      return { error: 'Firebase not configured. Add credentials to .env file. See FIREBASE_SETUP.md' };
+    }
+
+    try {
+      // Format phone number with + prefix
+      const formattedPhone = phone.startsWith('+') ? phone : '+' + phone.replace(/\D/g, '');
+      
+      // Setup reCAPTCHA verifier
+      const windowWithRecaptcha = window as any;
+      if (!windowWithRecaptcha.recaptchaVerifier) {
+        windowWithRecaptcha.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+          callback: () => {
+            console.log('✅ reCAPTCHA verified');
+          },
+        });
+      }
+
+      // Send SMS OTP via Firebase
+      const result = await signInWithPhoneNumber(auth, formattedPhone, windowWithRecaptcha.recaptchaVerifier);
+      
+      console.log(`📱 OTP sent to ${phone}`);
+      return { error: null, verificationId: result.verificationId };
+    } catch (error: any) {
+      console.error('❌ Error sending OTP:', error);
+      return { error: error.message || 'Failed to send OTP' };
+    }
+  }
+
+  async function verifyOTP(verificationId: string, otp: string, phone: string): Promise<{ error: string | null }> {
+    try {
+      const cleanPhone = phone.replace(/\D/g, '');
+      
+      // Verify OTP code with Firebase
+      const credential = PhoneAuthProvider.credential(verificationId, otp);
+      const result = await signInWithCredential(auth, credential);
+      
+      // Check if profile exists
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', result.user.uid)
+        .maybeSingle();
+      
+      if (!existingProfile) {
+        // New user - create profile
+        const { error: profileError } = await supabase.from('profiles').insert({
+          id: result.user.uid,
+          phone: cleanPhone,
+          email: result.user.email || `${cleanPhone}@pigeonpay.local`,
+        });
+        
+        if (profileError) return { error: profileError.message };
+        
+        // Create initial balances
+        const { error: balanceError } = await supabase.from('balances').insert([
+          { user_id: result.user.uid, token: 'USDC', amount: 0 },
+          { user_id: result.user.uid, token: 'SOL', amount: 0 },
+        ]);
+        
+        if (balanceError) console.error('Error creating balances:', balanceError);
+      } else {
+        // Update last login
+        await supabase.from('profiles').update({ updated_at: new Date().toISOString() }).eq('id', result.user.uid);
+      }
+      
+      console.log('✅ User authenticated:', result.user.uid);
+      return { error: null };
+    } catch (error: any) {
+      console.error('❌ Error verifying OTP:', error);
+      return { error: error.message || 'Invalid OTP' };
+    }
+  }
+
+  async function addPhone(phone: string): Promise<{ error: string | null }> {
+    if (!user) return { error: 'Not authenticated' };
+    
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    // Check if phone already exists for another user
+    const { data: existingPhone } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone', cleanPhone)
+      .maybeSingle();
+    
+    if (existingPhone && existingPhone.id !== user.uid) {
+      return { error: 'This phone number is already registered' };
+    }
+    
+    // Update user's profile with phone
+    const { error } = await supabase
+      .from('profiles')
+      .update({ phone: cleanPhone })
+      .eq('id', user.uid);
+    
     if (error) return { error: error.message };
-    if (data.user) {
-      const { error: profileError } = await supabase.from('profiles').insert({ id: data.user.id, phone });
-      if (profileError) return { error: profileError.message };
-    }
-    return { error: null };
-  }
-
-  async function signIn(phone: string, password: string): Promise<{ error: string | null }> {
-    const email = `${phone.replace(/\D/g, '')}@pigeonpay.app`;
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      if (error.message.includes('Invalid login')) return { error: 'Phone number or password incorrect' };
-      return { error: error.message };
-    }
+    
+    // Reload profile
+    await loadProfile(user.uid);
+    
     return { error: null };
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await firebaseSignOut(auth);
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, profile, balances, loading, signUp, signIn, signOut, refreshBalances }}>
+    <AuthContext.Provider value={{ user, profile, balances, loading, sendOTP, verifyOTP, addPhone, signOut, refreshBalances }}>
       {children}
     </AuthContext.Provider>
   );

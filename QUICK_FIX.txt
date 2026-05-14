@@ -1,0 +1,35 @@
+# 🚀 PigeonPay - Quick Fix
+
+## The Problem
+❌ Error: "Could not find the table 'public.otp_sessions' in the schema cache"
+
+## The Solution (3 steps)
+
+### 1️⃣ Open Supabase
+https://app.supabase.com → Select project **qaxtzytoobsunlbofzzz**
+
+### 2️⃣ Create Tables
+- Click **SQL Editor** (left sidebar)
+- Click **New Query**
+- Open file: `COMPLETE_SETUP.md` in this folder
+- Copy the SQL block under "Quick Start" → "Step 1"
+- Paste into Supabase
+- Click **Run**
+- ✅ Wait for "Query successful"
+
+### 3️⃣ Test
+- Refresh: http://localhost:5174
+- Click "Get Started"
+- Enter phone: +1 2125551234
+- Click "Send OTP"
+- Open DevTools (F12 → Console)
+- Find the OTP code
+- Enter it
+- ✅ Done!
+
+---
+
+**Frontend running on:** http://localhost:5174
+**Supabase Project:** https://app.supabase.com
+
+Need help? Check `COMPLETE_SETUP.md` for detailed instructions.

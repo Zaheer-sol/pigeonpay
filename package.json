@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup-db": "node setup-db.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0",
+    "firebase": "^12.12.1",
     "lucide-react": "^0.446.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",

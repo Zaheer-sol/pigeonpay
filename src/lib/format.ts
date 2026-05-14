@@ -19,6 +19,14 @@ export function maskPhone(phone: string): string {
   return `${clean.slice(0, 5)}***${clean.slice(-2)}`;
 }
 
+export function maskEmail(email: string): string {
+  if (!email) return '';
+  const [local, domain] = email.split('@');
+  if (!local || !domain) return email;
+  if (local.length <= 3) return `${local}@${domain}`;
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
 export function generateRefId(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');

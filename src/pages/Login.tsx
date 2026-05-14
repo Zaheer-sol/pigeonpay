@@ -1,28 +1,66 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Bird, Eye, EyeOff } from 'lucide-react';
+import { Bird } from 'lucide-react';
 import Button from '../components/Buttons';
 import Input from '../components/Input';
-import PhoneInput from '../components/PhoneInput';
+import PhoneInput, { isValidPhone } from '../components/PhoneInput';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { signIn } = useAuth();
+  const { sendOTP, verifyOTP } = useAuth();
 
+  const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPw, setShowPw] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handlePhoneNext(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValidPhone(phone)) {
+      setPhoneError('Please enter a valid phone number');
+      return;
+    }
+    setPhoneError('');
     setLoading(true);
     setError('');
-    const { error: err } = await signIn(phone, password);
+
+    const { error: err, verificationId: vid } = await sendOTP(phone);
     setLoading(false);
-    if (err) { setError(err); return; }
+
+    if (err) {
+      setError(err);
+      return;
+    }
+
+    if (vid) {
+      setSessionId(vid);
+      setStep('otp');
+    }
+  }
+
+  async function handleVerifyOTP(e: React.FormEvent) {
+    e.preventDefault();
+    if (otp.length !== 6 || !/^\d+$/.test(otp)) {
+      setOtpError('Please enter a valid 6-digit OTP');
+      return;
+    }
+    setOtpError('');
+    setLoading(true);
+    setError('');
+
+    const { error: err } = await verifyOTP(sessionId, otp, phone);
+    setLoading(false);
+
+    if (err) {
+      setOtpError(err);
+      return;
+    }
+
     navigate('/dashboard');
   }
 
@@ -35,42 +73,79 @@ export default function Login() {
         </div>
 
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-1">Login to PigeonPay</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-7">Enter your phone number and password</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm text-center mb-7">Enter your phone number</p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <PhoneInput value={phone} onChange={setPhone} />
-
-          <div>
-            <Input
-              label="Password"
-              type={showPw ? 'text' : 'password'}
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              rightEl={
-                <button type="button" onClick={() => setShowPw(!showPw)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                  {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              }
+        {step === 'phone' && (
+          <form onSubmit={handlePhoneNext} className="space-y-5">
+            <PhoneInput
+              value={phone}
+              onChange={setPhone}
+              error={phoneError}
             />
-            <div className="mt-1 text-right">
-              <a href="#" className="text-xs text-emerald-500 hover:underline">Forgot password?</a>
-            </div>
-          </div>
 
-          {error && (
-            <div className="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
-              {error}
-              {error.includes('not found') && (
-                <Link to="/signup" className="ml-1 underline font-semibold">Create one instead.</Link>
-              )}
-            </div>
-          )}
+            {error && (
+              <div className="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
+                {error}
+              </div>
+            )}
 
-          <Button fullWidth size="lg" loading={loading} type="submit">
-            {loading ? 'Logging in...' : 'Login'}
-          </Button>
-        </form>
+            <Button fullWidth size="lg" loading={loading} type="submit">
+              {loading ? 'Sending OTP...' : 'Send OTP'}
+            </Button>
+          </form>
+        )}
+
+        {step === 'otp' && (
+          <form onSubmit={handleVerifyOTP} className="space-y-5">
+            <div className="text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3">
+              Phone: <span className="font-semibold text-gray-900 dark:text-white">{phone}</span>
+              <button
+                type="button"
+                onClick={() => { setStep('phone'); setOtp(''); }}
+                className="ml-2 text-emerald-500 hover:underline text-xs"
+              >
+                Change
+              </button>
+            </div>
+
+            <div>
+              <Input
+                label="Enter OTP"
+                type="text"
+                placeholder="000000"
+                value={otp}
+                onChange={e => setOtp(e.target.value.slice(0, 6))}
+                error={otpError}
+                maxLength={6}
+              />
+              <p className="text-xs text-gray-400 mt-1">Check your browser console (F12) for the SMS code</p>
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 rounded-lg px-3 py-2">
+                {error}
+              </div>
+            )}
+
+            <Button
+              fullWidth size="lg"
+              loading={loading}
+              disabled={otp.length !== 6}
+              type="submit"
+            >
+              {loading ? 'Verifying...' : 'Verify & Login'}
+            </Button>
+
+            <button
+              type="button"
+              onClick={handlePhoneNext}
+              className="w-full text-sm text-emerald-500 hover:underline font-medium"
+              disabled={loading}
+            >
+              Resend OTP
+            </button>
+          </form>
+        )}
 
         <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
           Don't have an account?{' '}

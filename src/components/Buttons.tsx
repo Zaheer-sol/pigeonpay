@@ -1,4 +1,4 @@
-﻿import { ReactNode, ButtonHTMLAttributes } from 'react';
+import { ReactNode, ButtonHTMLAttributes } from 'react';
 import { Loader2 } from 'lucide-react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'outline';
@@ -26,14 +26,8 @@ const sizeClasses: Record<Size, string> = {
 };
 
 export default function Button({
-  variant = 'primary',
-  size = 'md',
-  loading = false,
-  fullWidth = false,
-  children,
-  disabled,
-  className = '',
-  ...props
+  variant = 'primary', size = 'md', loading = false,
+  fullWidth = false, children, disabled, className = '', ...props
 }: ButtonProps) {
   return (
     <button

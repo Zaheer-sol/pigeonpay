@@ -6,15 +6,31 @@ export type TokenInfo = {
   usdPrice: number;
 };
 
-export const TOKENS: TokenInfo[] = [
-  { symbol: 'USDC', name: 'USD Coin', color: '#2775CA', bgColor: '#EBF4FF', usdPrice: 1.0 },
-  { symbol: 'SOL',  name: 'Solana',   color: '#9945FF', bgColor: '#F5EEFF', usdPrice: 180.0 },
-  { symbol: 'USDT', name: 'Tether',   color: '#26A17B', bgColor: '#EDFAF5', usdPrice: 1.0 },
-  { symbol: 'BONK', name: 'Bonk',     color: '#F7931A', bgColor: '#FFF7ED', usdPrice: 0.0000125 },
-  { symbol: 'PYTH', name: 'Pyth',     color: '#6B7280', bgColor: '#F3F4F6', usdPrice: 0.085 },
-  { symbol: 'JUP',  name: 'Jupiter',  color: '#16A34A', bgColor: '#F0FDF4', usdPrice: 0.30 },
-  { symbol: 'ORCA', name: 'Orca',     color: '#0EA5E9', bgColor: '#F0F9FF', usdPrice: 0.90 },
-];
+// Default tokens with fallback prices
+const TOKEN_DEFAULTS: Record<string, Partial<TokenInfo>> = {
+  'USDC': { name: 'USD Coin', color: '#2775CA', bgColor: '#EBF4FF', usdPrice: 1.0 },
+  'SOL': { name: 'Solana', color: '#9945FF', bgColor: '#F5EEFF', usdPrice: 180.0 },
+  'USDT': { name: 'Tether', color: '#26A17B', bgColor: '#EDFAF5', usdPrice: 1.0 },
+  'BONK': { name: 'Bonk', color: '#F7931A', bgColor: '#FFF7ED', usdPrice: 0.0000125 },
+  'PYTH': { name: 'Pyth', color: '#6B7280', bgColor: '#F3F4F6', usdPrice: 0.085 },
+  'JUP': { name: 'Jupiter', color: '#16A34A', bgColor: '#F0FDF4', usdPrice: 0.30 },
+  'ORCA': { name: 'Orca', color: '#0EA5E9', bgColor: '#F0F9FF', usdPrice: 0.90 },
+};
+
+export let TOKENS: TokenInfo[] = Object.entries(TOKEN_DEFAULTS).map(([symbol, data]) => ({
+  symbol,
+  name: data.name || '',
+  color: data.color || '#000000',
+  bgColor: data.bgColor || '#FFFFFF',
+  usdPrice: data.usdPrice || 0,
+}));
+
+export function updateTokenPrices(priceMap: Record<string, number>): void {
+  TOKENS = TOKENS.map(token => ({
+    ...token,
+    usdPrice: priceMap[token.symbol] ?? token.usdPrice,
+  }));
+}
 
 export function getToken(symbol: string): TokenInfo {
   return TOKENS.find(t => t.symbol === symbol) ?? TOKENS[0];

@@ -51,7 +51,7 @@ export default function Settings() {
       <div className="max-w-lg mx-auto px-4 pt-5 pb-10 space-y-6">
         {/* Account */}
         <Section title="Account">
-          <InfoRow label="Phone number" value={profile?.phone ?? ''} />
+          <InfoRow label="Phone Number" value={profile?.phone ?? ''} />
           <InfoRow label="Account created" value={createdAt} />
           <InfoRow
             label="Account status"

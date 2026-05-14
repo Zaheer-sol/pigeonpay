@@ -3,19 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Copy } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import Button from '../components/Buttons';
-import Input from '../components/Input';
 import PhoneInput, { isValidPhone } from '../components/PhoneInput';
 import TokenIcon from '../components/TokenIcon';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import { supabase } from '../lib/supabase';
 import { TOKENS, toUsd, getToken } from '../lib/tokens';
-import { generateRefId } from '../lib/format';
+import { generateRefId, maskPhone } from '../lib/format';
+import { usePrices } from '../hooks/usePrices';
 
 export default function Send() {
   const navigate = useNavigate();
   const { user, profile, balances, refreshBalances } = useAuth();
   const { show } = useToast();
+  usePrices(60000); // Keep prices updated every 60 seconds
 
   const [selectedToken, setSelectedToken] = useState('USDC');
   const [recipient, setRecipient] = useState('');
@@ -42,30 +43,68 @@ export default function Send() {
     const ref = generateRefId();
     setRefId(ref);
 
-    const { error } = await supabase.from('transactions').insert({
-      sender_id: user.id,
-      recipient_phone: recipient,
-      token: selectedToken,
-      amount: amountNum,
-      usd_value: usdValue,
-      fee,
-      status: 'completed',
-      reference_id: ref,
-    });
+    try {
+      // Find recipient by phone
+      const { data: recipientProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('phone', recipient.replace(/\D/g, ''))
+        .maybeSingle();
 
-    if (!error) {
+      const recipientId = recipientProfile?.id || null;
+
+      // Create transaction record
+      const { error: txError } = await supabase.from('transactions').insert({
+        sender_id: user.uid,
+        recipient_phone: recipient,
+        recipient_id: recipientId,
+        token: selectedToken,
+        amount: amountNum,
+        usd_value: usdValue,
+        fee,
+        status: 'completed',
+        reference_id: ref,
+      });
+
+      if (txError) throw new Error(txError.message);
+
       // Deduct from sender balance
-      await supabase
+      const { error: deductError } = await supabase
         .from('balances')
         .update({ amount: balance - total })
-        .eq('user_id', user.id)
+        .eq('user_id', user.uid)
         .eq('token', selectedToken);
-      await refreshBalances();
-    }
 
-    setLoading(false);
-    if (error) { setErrorMsg(error.message); setResult('error'); }
-    else setResult('success');
+      if (deductError) throw new Error(deductError.message);
+
+      // Add to recipient balance if they exist
+      if (recipientId) {
+        const { data: recipientBalance } = await supabase
+          .from('balances')
+          .select('amount')
+          .eq('user_id', recipientId)
+          .eq('token', selectedToken)
+          .maybeSingle();
+
+        const recipientCurrentAmount = recipientBalance?.amount ?? 0;
+
+        const { error: addError } = await supabase
+          .from('balances')
+          .update({ amount: recipientCurrentAmount + amountNum })
+          .eq('user_id', recipientId)
+          .eq('token', selectedToken);
+
+        if (addError) throw new Error(addError.message);
+      }
+
+      await refreshBalances();
+      setLoading(false);
+      setResult('success');
+    } catch (error) {
+      setLoading(false);
+      setErrorMsg((error as Error).message);
+      setResult('error');
+    }
   }
 
   if (result === 'success') {
@@ -77,7 +116,7 @@ export default function Send() {
             <CheckCircle2 size={40} className="text-emerald-500" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Money sent!</h2>
-          <p className="text-gray-500 dark:text-gray-400 mb-2">They'll get a text message soon</p>
+          <p className="text-gray-500 dark:text-gray-400 mb-2">They'll get a notification</p>
           <div className="text-3xl font-bold text-emerald-500 mb-6">
             +${usdValue.toFixed(2)} {selectedToken}
           </div>
@@ -109,6 +148,25 @@ export default function Send() {
             <Button fullWidth variant="danger" onClick={() => setResult(null)}>Try Again</Button>
             <Button fullWidth variant="secondary" onClick={() => navigate('/dashboard')}>Back to Dashboard</Button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if user has a phone number
+  if (!profile?.phone) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <PageHeader showBack title="Send Money" />
+        <div className="max-w-lg mx-auto px-4 pt-16 pb-10 text-center">
+          <div className="text-5xl mb-6">📱</div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Add Your Phone Number First</h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-6">
+            You need a phone number to send money. This helps recipients identify and receive your payments.
+          </p>
+          <Button fullWidth variant="secondary" onClick={() => navigate('/dashboard')}>
+            Go to Dashboard & Add Phone
+          </Button>
         </div>
       </div>
     );
@@ -188,7 +246,7 @@ export default function Send() {
         {allValid && amountNum > 0 && (
           <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 space-y-2 shadow-sm">
             {[
-              { label: 'To', value: recipient },
+              { label: 'To', value: maskPhone(recipient) },
               { label: 'Token', value: selectedToken },
               { label: 'Amount', value: `$${amountNum.toFixed(2)}` },
               { label: 'Fee', value: `$${fee.toFixed(2)}` },

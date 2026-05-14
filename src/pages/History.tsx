@@ -26,7 +26,7 @@ export default function History() {
     supabase
       .from('transactions')
       .select('*')
-      .or(`sender_id.eq.${user.id},recipient_phone.eq.${profile.phone}`)
+      .or(`sender_id.eq.${user?.uid},recipient_phone.eq.${profile.phone}`)
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         setTransactions(data ?? []);
@@ -35,7 +35,7 @@ export default function History() {
   }, [user, profile]);
 
   const filtered = transactions.filter(tx => {
-    const isSender = tx.sender_id === user?.id;
+    const isSender = tx.sender_id === user?.uid;
     if (filter === 'sent') return isSender;
     if (filter === 'received') return !isSender;
     return true;
@@ -79,7 +79,7 @@ export default function History() {
         ) : (
           <div className="space-y-3">
             {filtered.map(tx => {
-              const isSender = tx.sender_id === user?.id;
+              const isSender = tx.sender_id === user?.uid;
               return (
                 <div
                   key={tx.id}
@@ -113,7 +113,7 @@ export default function History() {
         <Modal
           isOpen={!!selected}
           onClose={() => setSelected(null)}
-          title={selected.sender_id === user?.id ? `Sent $${selected.usd_value.toFixed(2)} ${selected.token}` : `Received $${selected.usd_value.toFixed(2)} ${selected.token}`}
+          title={selected.sender_id === user?.uid ? `Sent $${selected.usd_value.toFixed(2)} ${selected.token}` : `Received $${selected.usd_value.toFixed(2)} ${selected.token}`}
         >
           <div className="space-y-4">
             <div className="flex items-center gap-3 mb-2">
